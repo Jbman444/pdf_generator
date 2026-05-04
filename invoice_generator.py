@@ -13,6 +13,13 @@ from reportlab.platypus import Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
 
+
+# style to wrap text
+
+styles = getSampleStyleSheet()
+wrap_style = styles["Normal"]
+
+
 # -----------------------------
 # DATA CLASSES
 # -----------------------------
@@ -197,9 +204,9 @@ def build_invoice_pdf(invoice, filename="material_invoice.pdf"):
 
     for item in invoice.items:
         item_data.append([
-            item.item,
-            item.description,
-            item.price
+            Paragraph(item.item, wrap_style),
+            Paragraph(item.description, wrap_style),  
+            Paragraph(item.price, wrap_style)
         ])
 
     items_table = Table(
@@ -207,26 +214,64 @@ def build_invoice_pdf(invoice, filename="material_invoice.pdf"):
         colWidths=[usable_width * 0.22, usable_width * 0.61, usable_width * 0.17]
     )
 
-    items_table.setStyle(TableStyle([
+    items_style = TableStyle([
         ("GRID", (0, 0), (-1, -1), 1, colors.black),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (0, 0), (-1, 0), "CENTER"),
         ("ALIGN", (2, 1), (2, -1), "RIGHT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
+    ])
 
-    items_table.wrapOn(c, width, height)
-    items_height = items_table._height
+    items_table.setStyle(items_style)
 
-    if y - items_height < 0.6 * inch:
+    # -----------------------------
+    # DRAW ITEMS TABLE ACROSS PAGES
+    # -----------------------------
+
+    available_height = y - 0.6 * inch
+
+    while items_table:
+        parts = items_table.split(usable_width, available_height)
+
+        if not parts:
+            c.showPage()
+            y = height - 0.6 * inch
+            available_height = y - 0.6 * inch
+            continue
+
+        table_part = parts[0]
+        table_part.wrapOn(c, usable_width, available_height)
+
+        table_height = table_part._height
+        table_part.drawOn(c, left_margin, y - table_height)
+
+        remaining_rows = len(items_table._cellvalues) - len(table_part._cellvalues)
+
+        if remaining_rows <= 0:
+            break
+
+        # Continue remaining rows on next page
+        remaining_data = items_table._cellvalues[len(table_part._cellvalues):]
+
+        # Add header again on next page
+        header = item_data[0]
+        remaining_data = [header] + remaining_data
+
+        items_table = Table(
+            remaining_data,
+            colWidths=[usable_width * 0.22, usable_width * 0.61, usable_width * 0.17],
+            repeatRows=1
+        )
+
+        items_table.setStyle(items_style)
+
         c.showPage()
         y = height - 0.6 * inch
-
-    items_table.drawOn(c, left_margin, y - items_height)
+        available_height = y - 0.6 * inch
 
     c.save()
 
